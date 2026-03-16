@@ -1,31 +1,8 @@
 <!DOCTYPE html>
 <!--
   must-bio/index.html
-  ══════════════════════════════════════════════════════════════════
-  Deploy this file to GitHub Pages as a static site.
-
-  SETUP (one time, ~3 minutes):
-  1. Create a new GitHub repository named "must-bio" (public)
-  2. Upload this file as index.html to the repository root
-  3. Go to Settings → Pages → Source: Deploy from branch → main / root
-  4. GitHub gives you: https://YOURUSERNAME.github.io/must-bio/
-  5. Put that URL in the GAS biometric.html as BIO_POPUP_ORIGIN
-
-  HOW IT WORKS:
-  - GAS page opens this as a popup window with query params:
-      ?studentId=UUID&studentName=...&studentNumber=...&gasOrigin=https://script.google.com
-  - This page is a TOP-LEVEL browsing context (not an iframe)
-  - It calls navigator.credentials.create() — works without any Permissions Policy
-  - On success, posts the credential back to the GAS page via postMessage
-  - On failure, posts the error back
-  - Closes itself after posting
-
-  SECURITY:
-  - Only posts messages to the exact gasOrigin received in the query string
-  - gasOrigin is validated to only accept script.google.com URLs
-  - The challenge is generated here (not passed from GAS) to prevent
-    pre-computation attacks
-  ══════════════════════════════════════════════════════════════════
+  Deploy this file to https://kevinmainamuya.github.io/must-bio/
+  as the file index.html at the repository root.
 -->
 <html lang="en">
 <head>
@@ -34,7 +11,6 @@
   <title>MUST Biometric Registration</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       background: #f0fdf4;
@@ -44,7 +20,6 @@
       justify-content: center;
       padding: 20px;
     }
-
     .card {
       background: white;
       border-radius: 16px;
@@ -54,394 +29,260 @@
       box-shadow: 0 8px 32px rgba(26,107,60,0.15);
       text-align: center;
     }
-
     .logo {
-      width: 64px;
-      height: 64px;
-      border-radius: 50%;
-      margin: 0 auto 16px;
+      width: 64px; height: 64px;
+      border-radius: 50%; margin: 0 auto 16px;
+      display: block;
     }
-
-    h1 {
-      font-size: 1.2rem;
-      color: #1a6b3c;
-      margin-bottom: 4px;
-    }
-
-    .subtitle {
-      font-size: 0.85rem;
-      color: #6b7280;
-      margin-bottom: 24px;
-    }
-
+    h1 { font-size: 1.2rem; color: #1a6b3c; margin-bottom: 4px; }
+    .subtitle { font-size: 0.85rem; color: #6b7280; margin-bottom: 24px; }
     .student-card {
-      background: #f0fdf4;
-      border: 1.5px solid #22c55e;
-      border-radius: 10px;
-      padding: 12px 16px;
-      margin-bottom: 24px;
-      text-align: left;
+      background: #f0fdf4; border: 1.5px solid #22c55e;
+      border-radius: 10px; padding: 12px 16px;
+      margin-bottom: 24px; text-align: left; display: none;
     }
-
-    .student-card .name {
-      font-weight: 700;
-      color: #1a6b3c;
-      font-size: 1rem;
-    }
-
-    .student-card .number {
-      font-size: 0.82rem;
-      color: #6b7280;
-      margin-top: 2px;
-    }
-
-    /* Sensor ring */
+    .student-card .name  { font-weight: 700; color: #1a6b3c; font-size: 1rem; }
+    .student-card .number{ font-size: 0.82rem; color: #6b7280; margin-top: 2px; }
     .sensor-wrap {
-      width: 120px;
-      height: 120px;
-      border-radius: 50%;
+      width: 120px; height: 120px; border-radius: 50%;
       border: 3px solid #d1d5db;
       margin: 0 auto 20px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.3s ease;
-      background: white;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.3s ease; background: white;
     }
-
     .sensor-wrap.scanning {
       border-color: #1a6b3c;
       animation: pulse 1.4s ease-in-out infinite;
     }
-
-    .sensor-wrap.success {
-      border-color: #22c55e;
-      background: rgba(34,197,94,0.05);
-    }
-
-    .sensor-wrap.error {
-      border-color: #ef4444;
-      animation: shake 0.4s ease;
-    }
-
+    .sensor-wrap.success { border-color: #22c55e; background: rgba(34,197,94,0.05); }
+    .sensor-wrap.error   { border-color: #ef4444; animation: shake 0.4s ease; }
     @keyframes pulse {
-      0%,100% { box-shadow: 0 0 0 6px rgba(26,107,60,0.08),0 0 0 12px rgba(26,107,60,0.04); }
-      50%      { box-shadow: 0 0 0 10px rgba(26,107,60,0.14),0 0 0 20px rgba(26,107,60,0.07); }
+      0%,100%{ box-shadow: 0 0 0 6px rgba(26,107,60,.08),0 0 0 12px rgba(26,107,60,.04); }
+      50%    { box-shadow: 0 0 0 10px rgba(26,107,60,.14),0 0 0 20px rgba(26,107,60,.07); }
     }
-
     @keyframes shake {
-      0%,100% { transform: translateX(0); }
-      25%     { transform: translateX(-6px); }
-      75%     { transform: translateX(6px); }
+      0%,100%{ transform: translateX(0); }
+      25%    { transform: translateX(-6px); }
+      75%    { transform: translateX(6px); }
     }
-
-    .sensor-icon {
-      font-size: 3rem;
-      color: #9ca3af;
-      transition: color 0.3s;
-    }
-
-    .sensor-wrap.scanning .sensor-icon { color: #1a6b3c; }
-    .sensor-wrap.success  .sensor-icon { color: #22c55e; }
-    .sensor-wrap.error    .sensor-icon { color: #ef4444; }
-
-    .status-text {
-      font-size: 1rem;
-      font-weight: 600;
-      color: #111827;
-      margin-bottom: 6px;
-    }
-
-    .status-sub {
-      font-size: 0.82rem;
-      color: #6b7280;
-      margin-bottom: 20px;
-      min-height: 36px;
-    }
-
+    .fp-icon { font-size: 3.5rem; color: #9ca3af; transition: color 0.3s; line-height: 1; }
+    .sensor-wrap.scanning .fp-icon { color: #1a6b3c; }
+    .sensor-wrap.success  .fp-icon { color: #22c55e; }
+    .sensor-wrap.error    .fp-icon { color: #ef4444; }
+    .status-text { font-size: 1rem; font-weight: 600; color: #111827; margin-bottom: 6px; }
+    .status-sub  { font-size: 0.82rem; color: #6b7280; margin-bottom: 20px; min-height: 40px; }
     .btn {
-      display: inline-block;
-      padding: 12px 28px;
-      border-radius: 10px;
-      font-weight: 700;
-      font-size: 0.95rem;
-      cursor: pointer;
-      border: none;
-      transition: all 0.2s;
-      width: 100%;
-      margin-bottom: 8px;
+      display: block; width: 100%;
+      padding: 12px 28px; border-radius: 10px;
+      font-weight: 700; font-size: 0.95rem;
+      cursor: pointer; border: none;
+      transition: all 0.2s; margin-bottom: 8px;
     }
-
     .btn-primary {
       background: linear-gradient(135deg, #1a6b3c, #22c55e);
-      color: white;
-      box-shadow: 0 4px 12px rgba(26,107,60,0.25);
+      color: white; box-shadow: 0 4px 12px rgba(26,107,60,0.25);
     }
-
-    .btn-primary:hover { transform: translateY(-1px); }
-    .btn-primary:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    .btn-secondary {
-      background: #f3f4f6;
-      color: #374151;
-    }
-
+    .btn-primary:hover:not(:disabled) { transform: translateY(-1px); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary { background: #f3f4f6; color: #374151; }
     .btn-secondary:hover { background: #e5e7eb; }
-
-    .error-box {
-      background: #fef2f2;
-      border: 1.5px solid #fca5a5;
-      border-radius: 10px;
-      padding: 12px 16px;
-      margin-bottom: 16px;
-      font-size: 0.82rem;
-      color: #991b1b;
-      text-align: left;
-      display: none;
+    .alert-box {
+      border-radius: 10px; padding: 12px 16px;
+      margin-bottom: 16px; font-size: 0.82rem;
+      text-align: left; display: none;
     }
-
-    .success-box {
-      background: #f0fdf4;
-      border: 1.5px solid #86efac;
-      border-radius: 10px;
-      padding: 12px 16px;
-      margin-bottom: 16px;
-      font-size: 0.82rem;
-      color: #166534;
-      text-align: left;
-      display: none;
-    }
-
-    .secure-note {
-      font-size: 0.72rem;
-      color: #9ca3af;
-      margin-top: 16px;
-    }
-
-    .secure-note span {
-      color: #22c55e;
-    }
+    .alert-error   { background: #fef2f2; border: 1.5px solid #fca5a5; color: #991b1b; }
+    .alert-success { background: #f0fdf4; border: 1.5px solid #86efac; color: #166534; }
+    .alert-info    { background: #eff6ff; border: 1.5px solid #93c5fd; color: #1e40af; }
+    code { font-family: monospace; font-size: 0.78rem; word-break: break-all; }
+    .secure-note { font-size: 0.72rem; color: #9ca3af; margin-top: 16px; }
+    .secure-note .green { color: #22c55e; }
   </style>
 </head>
 <body>
-
 <div class="card">
   <img class="logo"
        src="https://raw.githubusercontent.com/kevinmainamuya/image-storage/refs/heads/main/MUST.png"
-       alt="MUST Logo"
-       onerror="this.style.display='none'">
-
+       alt="MUST" onerror="this.style.display='none'">
   <h1>MUST Biometric Registration</h1>
-  <p class="subtitle">Fingerprint Registration — Meru University</p>
+  <p class="subtitle">Fingerprint — Meru University of Science &amp; Technology</p>
 
-  <div class="student-card" id="student-card" style="display:none;">
-    <div class="name" id="student-name">—</div>
+  <div class="student-card" id="student-card">
+    <div class="name"   id="student-name">—</div>
     <div class="number" id="student-number">—</div>
   </div>
 
-  <div class="error-box" id="error-box"></div>
-  <div class="success-box" id="success-box"></div>
+  <div class="alert-box alert-info" id="info-box"></div>
+  <div class="alert-box alert-error" id="error-box"></div>
+  <div class="alert-box alert-success" id="success-box"></div>
 
   <div class="sensor-wrap" id="sensor">
-    <!-- fingerprint SVG icon (inline, no external dependency) -->
-    <svg class="sensor-icon" id="sensor-icon"
-         xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-         fill="none" stroke="currentColor" stroke-width="1.5"
-         stroke-linecap="round" stroke-linejoin="round"
-         style="width:3rem;height:3rem;">
-      <path d="M12 2C8.5 2 5.5 4.5 5.5 8c0 2.5.8 5.5 2.5 8"/>
-      <path d="M12 2c3.5 0 6.5 2.5 6.5 6 0 2.5-.8 5.5-2.5 8"/>
-      <path d="M8 8c0-2.2 1.8-4 4-4s4 1.8 4 4c0 1.5-.3 3.5-1 5.5"/>
-      <path d="M12 6c1.1 0 2 .9 2 2 0 1-.2 2.5-.5 4"/>
-      <path d="M9.5 8c0-.8.3-1.5.8-2"/>
-    </svg>
+    <span class="fp-icon" id="sensor-icon">☝</span>
   </div>
 
   <p class="status-text" id="status-text">Ready</p>
-  <p class="status-sub" id="status-sub">
-    Tap the button below. Your device will ask you to place your finger on the sensor.
+  <p class="status-sub"  id="status-sub">
+    Tap the button below, then place your finger on the biometric sensor when the device prompts you.
   </p>
 
-  <button class="btn btn-primary" id="scan-btn" onclick="startScan()">
-    Place Finger &amp; Scan
+  <button class="btn btn-primary"   id="scan-btn"  onclick="startScan()">
+    Scan Fingerprint
   </button>
-
-  <button class="btn btn-secondary" id="retry-btn" style="display:none;"
-          onclick="resetUI()">
+  <button class="btn btn-secondary" id="retry-btn" onclick="resetUI()" style="display:none;">
     Try Again
   </button>
-
-  <button class="btn btn-secondary" id="close-btn" style="display:none;"
-          onclick="window.close()">
-    Close
+  <button class="btn btn-secondary" id="done-btn"  onclick="window.close()" style="display:none;">
+    Close / Return to App
   </button>
 
   <p class="secure-note">
-    <span>🔒</span> Your fingerprint never leaves this device.
-    Only a cryptographic credential is stored.
+    <span class="green">🔒</span>
+    Your fingerprint never leaves this device.
+    Only a cryptographic key is sent back to the attendance system.
   </p>
 </div>
 
 <script>
 // ══════════════════════════════════════════════════════════════
-// Configuration — read from URL query params
+// Read URL parameters
 // ══════════════════════════════════════════════════════════════
-var params     = new URLSearchParams(window.location.search);
-var studentId  = params.get('studentId')     || '';
-var studentName= params.get('studentName')   || 'Student';
-var studentNum = params.get('studentNumber') || '';
-var fingerIdx  = parseInt(params.get('fingerIndex') || '1', 10);
-var gasOrigin  = params.get('gasOrigin')     || '';
+var P           = new URLSearchParams(window.location.search);
+var studentId   = P.get('studentId')     || '';
+var studentName = P.get('studentName')   || '';
+var studentNum  = P.get('studentNumber') || '';
+var fingerIndex = parseInt(P.get('fingerIndex') || '1', 10);
+var gasOrigin   = P.get('gasOrigin')     || '';
 
-// Security: only post back to script.google.com
-var ALLOWED_ORIGIN_PATTERN = /^https:\/\/script\.google\.com/;
+// The GAS origin we are allowed to post back to.
+// We accept the exact value supplied, but only if it matches
+// script.google.com or the explicit GAS web app URL pattern.
+function isAllowedGasOrigin(origin) {
+  if (!origin) return false;
+  return origin === 'https://script.google.com' ||
+         origin.startsWith('https://script.google.com') ||
+         // GAS web apps are served from script.googleusercontent.com
+         origin.endsWith('.googleusercontent.com') ||
+         // Allow localhost for local testing
+         origin === 'http://localhost' ||
+         origin.startsWith('http://localhost:');
+}
 
 // ══════════════════════════════════════════════════════════════
-// Init
+// Init on load
 // ══════════════════════════════════════════════════════════════
 window.addEventListener('load', function () {
-  // Show student info if provided
-  if (studentName && studentNum) {
+
+  // Show student card
+  if (studentName || studentNum) {
     document.getElementById('student-card').style.display = 'block';
-    document.getElementById('student-name').textContent   = studentName;
-    document.getElementById('student-number').textContent = 'Student No: ' + studentNum;
+    document.getElementById('student-name').textContent   = studentName || '—';
+    document.getElementById('student-number').textContent =
+      studentNum ? ('Student No: ' + studentNum) : '';
   }
 
-  // Validate gasOrigin
-  if (!gasOrigin || !ALLOWED_ORIGIN_PATTERN.test(gasOrigin)) {
-    showError(
-      'Invalid origin parameter. This page must be opened from the MUST Attendance System.',
-      false
+  // Validate gasOrigin — without this we can't send back the result
+  if (!isAllowedGasOrigin(gasOrigin)) {
+    showInfo(
+      'No valid <code>gasOrigin</code> parameter found in the URL.<br><br>' +
+      'This page should be opened from within the MUST Attendance System, not directly. ' +
+      'Scanning will still work; the result will be stored in <code>sessionStorage</code> ' +
+      'for you to copy if needed.'
     );
-    document.getElementById('scan-btn').disabled = true;
+  }
+
+  // Check WebAuthn API availability
+  if (!window.PublicKeyCredential || !navigator.credentials || !navigator.credentials.create) {
+    disableScan(
+      'WebAuthn is not supported in this browser.',
+      'Please open this page in <strong>Chrome</strong> or <strong>Samsung Internet</strong> on Android, ' +
+      'or <strong>Safari</strong> on iOS 14+.'
+    );
     return;
   }
 
-  // Check WebAuthn availability
-  if (!window.PublicKeyCredential || !navigator.credentials) {
-    showError(
-      'This browser does not support WebAuthn. Please use Chrome or Samsung Internet on Android.',
-      false
-    );
-    document.getElementById('scan-btn').disabled = true;
-    return;
-  }
-
-  // Check platform authenticator
+  // Check whether the device has an enrolled biometric
   PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
     .then(function (available) {
       if (!available) {
-        showError(
-          'No fingerprint enrolled on this device. Go to Settings → Security → Fingerprint and enrol first.',
-          false
+        disableScan(
+          'No fingerprint enrolled on this device.',
+          'Go to <strong>Settings → Security → Fingerprint</strong> (or Face ID on iOS) ' +
+          'and enrol at least one fingerprint, then return here.'
         );
-        document.getElementById('scan-btn').disabled = true;
       }
     })
-    .catch(function () {
-      // Non-fatal — some browsers don't support this check
-    });
+    .catch(function () { /* non-fatal — proceed anyway */ });
 });
 
 // ══════════════════════════════════════════════════════════════
 // Scan
 // ══════════════════════════════════════════════════════════════
 function startScan() {
-  var sensor  = document.getElementById('sensor');
-  var scanBtn = document.getElementById('scan-btn');
+  hideAll();
+  setScanning();
 
-  sensor.className  = 'sensor-wrap scanning';
-  scanBtn.disabled  = true;
-  document.getElementById('status-text').textContent = 'Waiting for fingerprint…';
-  document.getElementById('status-sub').textContent  =
-    'Place your finger on the device biometric sensor now';
-  hideError();
-
-  // Generate a fresh challenge — 32 random bytes
-  // The challenge is generated HERE (not passed from GAS) to prevent
-  // the GAS page from pre-computing or replaying credentials
-  var challenge = new Uint8Array(32);
+  // Generate a cryptographic challenge here on the popup page.
+  // Never accept a challenge from the opener — generating it here
+  // prevents the parent page from pre-computing or replaying credentials.
+  var challenge    = new Uint8Array(32);
   window.crypto.getRandomValues(challenge);
+  var challengeB64 = bufToB64(challenge);
 
-  // Store challenge so we can include it in the postMessage response
-  // for the GAS backend to record (optional verification step)
-  var challengeB64 = bufToBase64(challenge);
-
-  var userId = new TextEncoder().encode(studentId || 'unknown');
+  var userId = new TextEncoder().encode(studentId || ('student_' + Date.now()));
 
   navigator.credentials.create({
     publicKey: {
-      challenge: challenge,
-      rp: {
-        // Use the GitHub Pages domain as the RP ID
-        // This MUST match window.location.hostname exactly
+      challenge        : challenge,
+      rp               : {
         name: 'MUST Attendance System',
+        // rpId MUST be exactly window.location.hostname
+        // For kevinmainamuya.github.io/must-bio/ this is 'kevinmainamuya.github.io'
         id  : window.location.hostname
       },
-      user: {
+      user             : {
         id         : userId,
-        name       : studentNum  || studentId,
+        name       : studentNum  || studentId  || 'student',
         displayName: studentName || 'Student'
       },
-      pubKeyCredParams: [
-        { alg: -7,   type: 'public-key' },   // ES256
-        { alg: -257, type: 'public-key' }    // RS256
+      pubKeyCredParams : [
+        { alg: -7,   type: 'public-key' },  // ES256
+        { alg: -257, type: 'public-key' }   // RS256
       ],
       authenticatorSelection: {
-        authenticatorAttachment: 'platform',   // device biometric
-        userVerification       : 'required',   // must use biometric, not PIN only
+        authenticatorAttachment: 'platform',  // phone biometric, not USB key
+        userVerification       : 'required',  // must actually verify finger
         residentKey            : 'preferred'
       },
       timeout    : 60000,
       attestation: 'direct'
     }
   })
-  .then(function (credential) {
-    onSuccess(credential, challengeB64);
-  })
-  .catch(function (err) {
-    onError(err);
-  });
+  .then(function (credential) { onSuccess(credential, challengeB64); })
+  .catch(function (err)       { onError(err); });
 }
 
 // ══════════════════════════════════════════════════════════════
-// Success handler
+// Success
 // ══════════════════════════════════════════════════════════════
 function onSuccess(credential, challengeB64) {
-  var sensor = document.getElementById('sensor');
-  sensor.className = 'sensor-wrap success';
+  setSensorState('success', '✓');
+  setText('Fingerprint captured!', 'Sending credential to MUST Attendance System…');
 
-  // Replace SVG with check
-  document.getElementById('sensor-icon').innerHTML = '';
-  document.getElementById('sensor-icon').style.fontSize = '3rem';
-  document.getElementById('sensor-icon').textContent = '✓';
-  document.getElementById('sensor-icon').style.color = '#22c55e';
-
-  document.getElementById('status-text').textContent = 'Fingerprint captured!';
-  document.getElementById('status-sub').textContent  =
-    'Sending credential to MUST Attendance System…';
-
-  // Extract credential data
-  var credId  = bufToBase64(credential.rawId);
+  var credId  = bufToB64(credential.rawId);
   var pubKey  = '';
-  try { pubKey = bufToBase64(credential.response.getPublicKey()); } catch (e) {}
-  var attest  = bufToBase64(credential.response.attestationObject);
-  var cdJson  = bufToBase64(credential.response.clientDataJSON);
+  try { pubKey = bufToB64(credential.response.getPublicKey()); } catch (e) {}
+  var attest  = bufToB64(credential.response.attestationObject);
+  var cdJson  = bufToB64(credential.response.clientDataJSON);
 
-  // Parse authenticator data flags for the GAS page to display
   var authFlags = null;
   try {
-    var authDataBuf = credential.response.getAuthenticatorData();
-    var view   = new DataView(authDataBuf);
-    var flags  = view.getUint8(32);
-    authFlags  = {
-      userPresence  : (flags & 0x01) !== 0,
-      userVerified  : (flags & 0x04) !== 0,
-      signCount     : view.getUint32(33, false)
+    var adb   = credential.response.getAuthenticatorData();
+    var view  = new DataView(adb);
+    var flags = view.getUint8(32);
+    authFlags = {
+      userPresence : (flags & 0x01) !== 0,
+      userVerified : (flags & 0x04) !== 0,
+      signCount    : view.getUint32(33, false)
     };
   } catch (e) {}
 
@@ -449,136 +290,174 @@ function onSuccess(credential, challengeB64) {
   try {
     var algId = credential.response.getPublicKeyAlgorithm
                 ? credential.response.getPublicKeyAlgorithm() : null;
-    if (algId === -7)   algLabel = 'ES256';
+    if      (algId === -7)   algLabel = 'ES256';
     else if (algId === -257) algLabel = 'RS256';
+    else if (algId)          algLabel = 'alg#' + algId;
   } catch (e) {}
 
   var quality = Math.min(98, 65 + Math.floor(credential.rawId.byteLength / 3));
 
   var message = {
-    type         : 'MUST_BIO_SUCCESS',
-    studentId    : studentId,
-    fingerIndex  : fingerIdx,
-    credentialId : credId,
-    publicKey    : pubKey,
-    attestation  : attest,
-    clientDataJSON: cdJson,
-    challenge    : challengeB64,
-    algorithm    : algLabel,
-    authFlags    : authFlags,
-    quality      : quality,
-    capturedAt   : new Date().toISOString(),
-    rpId         : window.location.hostname
+    type           : 'MUST_BIO_SUCCESS',
+    studentId      : studentId,
+    fingerIndex    : fingerIndex,
+    credentialId   : credId,
+    publicKey      : pubKey,
+    attestation    : attest,
+    clientDataJSON : cdJson,
+    challenge      : challengeB64,
+    algorithm      : algLabel,
+    authFlags      : authFlags,
+    quality        : quality,
+    capturedAt     : new Date().toISOString(),
+    rpId           : window.location.hostname
   };
 
-  // Post back to GAS page
+  // ── Post message back to opener (popup) or to the tab that opened us ──────
+  var sent = false;
   if (window.opener && !window.opener.closed) {
-    window.opener.postMessage(message, gasOrigin);
+    // Opened as a popup
+    try {
+      window.opener.postMessage(message, isAllowedGasOrigin(gasOrigin) ? gasOrigin : '*');
+      sent = true;
+    } catch (e) { console.warn('postMessage to opener failed:', e); }
   }
 
-  // Show success state
-  var sb = document.getElementById('success-box');
-  sb.style.display = 'block';
-  sb.innerHTML =
-    '<strong>✓ Credential captured</strong><br>' +
-    'Credential ID: <code>' + credId.substring(0, 32) + '…</code><br>' +
+  // Also store in sessionStorage so the GAS page can poll for it
+  // if postMessage doesn't arrive (tab scenario)
+  try {
+    sessionStorage.setItem('MUST_BIO_RESULT', JSON.stringify(message));
+  } catch (e) {}
+
+  var credShort = credId.substring(0, 36) + '…';
+  showSuccess(
+    '<strong>✓ Fingerprint registered</strong><br>' +
+    'Credential: <code>' + credShort + '</code><br>' +
     'Algorithm: ' + algLabel + '<br>' +
-    (authFlags ? 'UV: ' + authFlags.userVerified + '  UP: ' + authFlags.userPresence : '') +
-    '<br>Closing in 3 seconds…';
+    (authFlags
+      ? 'User verified: ' + authFlags.userVerified +
+        '  |  Sign count: ' + authFlags.signCount + '<br>'
+      : '') +
+    '<br>' +
+    (sent
+      ? 'Result sent to MUST Attendance System. You may close this tab.'
+      : 'Return to the MUST Attendance System tab and tap <strong>Check Result</strong>.')
+  );
 
-  document.getElementById('status-sub').textContent = 'Done. This window will close shortly.';
-
-  setTimeout(function () { window.close(); }, 3000);
+  setText('Done!', sent ? 'You may close this tab.' : 'Return to the MUST Attendance System tab.');
+  document.getElementById('done-btn').style.display = 'block';
 }
 
 // ══════════════════════════════════════════════════════════════
-// Error handler
+// Error
 // ══════════════════════════════════════════════════════════════
 function onError(err) {
-  var sensor = document.getElementById('sensor');
-  sensor.className = 'sensor-wrap error';
+  setSensorState('error', '✕');
 
-  document.getElementById('status-text').textContent = 'Scan failed';
-
-  var msg = 'Please try again.';
+  var msg = 'Scan failed: ' + err.name;
   var fix = '';
 
   if (err.name === 'NotAllowedError') {
     msg = 'Cancelled or timed out.';
-    fix = 'Tap the button again and place your finger promptly (within 30 seconds).';
+    fix = 'Tap <strong>Try Again</strong> and place your finger promptly when prompted.';
   } else if (err.name === 'InvalidStateError') {
-    msg = 'This device already has a credential registered.';
-    fix = 'Use a different finger, or ask ICT to delete the existing registration first.';
+    msg = 'A credential for this student already exists on this device.';
+    fix = 'Ask ICT to delete the existing fingerprint first, then try with a different finger.';
   } else if (err.name === 'NotSupportedError') {
-    msg = 'Biometric sensor not available.';
-    fix = 'Ensure fingerprint is enrolled in Settings → Security → Fingerprint.';
+    msg = 'Biometric sensor unavailable.';
+    fix = 'Ensure fingerprint is enrolled in <strong>Settings → Security → Fingerprint</strong>.';
   } else if (err.name === 'SecurityError') {
-    msg = 'Security error.';
-    fix = 'The page must be served over HTTPS with matching RP ID. Contact ICT.';
+    msg = 'Security error — RP ID mismatch or not HTTPS.';
+    fix = 'This page must be accessed via <code>https://kevinmainamuya.github.io/must-bio/</code>. Contact ICT.';
   }
 
-  document.getElementById('status-sub').textContent = msg + (fix ? ' ' + fix : '');
-  showError(err.name + ': ' + err.message + (fix ? '<br><br><strong>Fix:</strong> ' + fix : ''), true);
+  showError(msg + (fix ? '<br><br>' + fix : ''));
+  setText('Scan failed', '');
 
-  // Notify GAS page of the error too
+  // Notify opener of error
+  var errMsg = {
+    type        : 'MUST_BIO_ERROR',
+    studentId   : studentId,
+    fingerIndex : fingerIndex,
+    errorName   : err.name,
+    errorMessage: err.message,
+    capturedAt  : new Date().toISOString()
+  };
   if (window.opener && !window.opener.closed) {
-    window.opener.postMessage({
-      type        : 'MUST_BIO_ERROR',
-      studentId   : studentId,
-      fingerIndex : fingerIdx,
-      errorName   : err.name,
-      errorMessage: err.message,
-      capturedAt  : new Date().toISOString()
-    }, gasOrigin);
+    try {
+      window.opener.postMessage(errMsg, isAllowedGasOrigin(gasOrigin) ? gasOrigin : '*');
+    } catch (e) {}
   }
+  try { sessionStorage.setItem('MUST_BIO_RESULT', JSON.stringify(errMsg)); } catch (e) {}
 
-  setTimeout(function () {
-    sensor.className = 'sensor-wrap';
-  }, 1500);
+  setTimeout(function () { setSensorState('', '☝'); }, 1500);
+  document.getElementById('retry-btn').style.display = 'block';
+  document.getElementById('done-btn').style.display  = 'block';
 }
 
 // ══════════════════════════════════════════════════════════════
-// Helpers
+// UI helpers
 // ══════════════════════════════════════════════════════════════
+function setScanning() {
+  setSensorState('scanning', '☝');
+  setText('Waiting for fingerprint…',
+          'Place your finger on the device biometric sensor now.');
+  document.getElementById('scan-btn').disabled        = true;
+  document.getElementById('retry-btn').style.display  = 'none';
+  document.getElementById('done-btn').style.display   = 'none';
+}
+
+function setSensorState(cls, icon) {
+  var w = document.getElementById('sensor');
+  w.className = 'sensor-wrap' + (cls ? ' ' + cls : '');
+  document.getElementById('sensor-icon').textContent = icon;
+}
+
+function setText(title, sub) {
+  document.getElementById('status-text').textContent = title;
+  document.getElementById('status-sub').innerHTML    = sub;
+}
+
+function showInfo(html) {
+  var b = document.getElementById('info-box');
+  b.style.display = 'block'; b.innerHTML = html;
+}
+function showError(html) {
+  var b = document.getElementById('error-box');
+  b.style.display = 'block'; b.innerHTML = html;
+}
+function showSuccess(html) {
+  var b = document.getElementById('success-box');
+  b.style.display = 'block'; b.innerHTML = html;
+}
+function hideAll() {
+  ['info-box','error-box','success-box'].forEach(function (id) {
+    document.getElementById(id).style.display = 'none';
+  });
+}
+
+function disableScan(title, fix) {
+  showError(title + '<br><br>' + fix);
+  document.getElementById('scan-btn').disabled = true;
+}
+
 function resetUI() {
-  var sensor = document.getElementById('sensor');
-  sensor.className = 'sensor-wrap';
-  document.getElementById('status-text').textContent = 'Ready';
-  document.getElementById('status-sub').textContent  =
-    'Tap the button below. Your device will ask you to place your finger on the sensor.';
-  document.getElementById('scan-btn').disabled  = false;
-  document.getElementById('scan-btn').style.display  = 'inline-block';
-  document.getElementById('retry-btn').style.display = 'none';
-  document.getElementById('close-btn').style.display = 'none';
-  hideError();
+  setSensorState('', '☝');
+  setText('Ready',
+          'Tap the button below, then place your finger on the biometric sensor when prompted.');
+  hideAll();
+  document.getElementById('scan-btn').disabled        = false;
+  document.getElementById('retry-btn').style.display  = 'none';
+  document.getElementById('done-btn').style.display   = 'none';
 }
 
-function showError(html, showRetry) {
-  var box = document.getElementById('error-box');
-  box.style.display   = 'block';
-  box.innerHTML = html;
-  document.getElementById('scan-btn').style.display  = showRetry ? 'none' : 'inline-block';
-  document.getElementById('scan-btn').disabled       = false;
-  document.getElementById('retry-btn').style.display = showRetry ? 'inline-block' : 'none';
-  document.getElementById('close-btn').style.display = 'inline-block';
-}
-
-function hideError() {
-  document.getElementById('error-box').style.display  = 'none';
-  document.getElementById('success-box').style.display = 'none';
-  document.getElementById('scan-btn').style.display  = 'inline-block';
-  document.getElementById('scan-btn').disabled       = false;
-  document.getElementById('retry-btn').style.display = 'none';
-  document.getElementById('close-btn').style.display = 'none';
-}
-
-function bufToBase64(buf) {
+// ── Buffer → base64 ──────────────────────────────────────────
+function bufToB64(buf) {
   if (!buf || buf.byteLength === 0) return '';
   var bytes = new Uint8Array(buf), bin = '';
   for (var i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
   return btoa(bin);
 }
 </script>
-
 </body>
 </html>
