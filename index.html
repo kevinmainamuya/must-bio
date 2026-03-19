@@ -424,7 +424,19 @@ function checkWebAuthn() {
   }
   PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
     .then(function (ok) {
-      if (!ok) disableFp('No fingerprint enrolled.', 'Go to Settings → Security → Fingerprint first.');
+      if (!ok) {
+        disableFp('No biometric enrolled on this device.',
+                  'Go to Settings → Security → Fingerprint and enroll your fingerprint first.');
+      } else {
+        // Show a clear instruction before scan
+        showInfo(
+          '<strong>Important:</strong> When prompted, tap <strong>Continue</strong> ' +
+          'and use your <strong>fingerprint sensor</strong> — not your PIN or face. ' +
+          'If asked to "save to Google Password Manager", choose ' +
+          '<strong>"This device only"</strong> or <strong>"Use a different device"</strong> ' +
+          'and select your fingerprint option.'
+        );
+      }
     })
     .catch(function () {});
 }
@@ -444,53 +456,152 @@ function startFpScan() {
 
   navigator.credentials.create({
     publicKey: {
-      challenge,
-      rp: { name: 'MUST Attendance System', id: window.location.hostname },
-      user: { id: userId, name: studentNum || studentId, displayName: studentName || 'Student' },
-      pubKeyCredParams: [{ alg: -7, type: 'public-key' }, { alg: -257, type: 'public-key' }],
-      authenticatorSelection: {
-        authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'preferred'
+      challenge : challenge,
+      rp        : {
+        name: 'MUST Attendance System',
+        id  : window.location.hostname
       },
-      timeout: 60000, attestation: 'direct'
+      user: {
+        id         : userId,
+        name       : studentNum  || studentId,
+        displayName: studentName || 'Student'
+      },
+      pubKeyCredParams: [
+        { alg: -7,   type: 'public-key' },  // ES256
+        { alg: -257, type: 'public-key' }   // RS256
+      ],
+      authenticatorSelection: {
+        authenticatorAttachment: 'platform',  // device sensor only, no roaming keys
+        userVerification       : 'required',  // must use biometric/PIN
+        residentKey            : 'discouraged', // avoid synced passkeys
+        requireResidentKey     : false
+      },
+      // 'direct' attestation so we can inspect the authenticator's flags
+      // to detect if it's device-bound or synced
+      attestation: 'direct',
+      timeout    : 60000,
+      // Exclude any previously registered credentials for this student
+      // (passed in via URL param if available)
+      excludeCredentials: _buildExcludeList()
     }
   })
   .then(function (c) { onFpSuccess(c, chalB64); })
   .catch(function (e) { onFpError(e); });
 }
 
+function _buildExcludeList() {
+  // Exclude existing credentials so re-registration is blocked on same device
+  // credentialIds is already parsed from URL params at top of file
+  return credentialIds.map(function (id) {
+    try { return { id: b64ToBuf(id), type: 'public-key', transports: ['internal'] }; }
+    catch (e) { return null; }
+  }).filter(Boolean);
+}
+
 function onFpSuccess(credential, chalB64) {
   setSensor('fp-sensor', 'success', '✓');
-  document.getElementById('fp-status').textContent = 'Fingerprint captured!';
-  document.getElementById('fp-sub').textContent    = 'Sending to MUST Attendance System…';
 
-  var credId = bufToB64(credential.rawId);
-  var pubKey = ''; try { pubKey = bufToB64(credential.response.getPublicKey()); } catch (e) {}
+  var credId  = bufToB64(credential.rawId);
+  var pubKey  = '';
+  try { pubKey = bufToB64(credential.response.getPublicKey()); } catch (e) {}
   var attest  = bufToB64(credential.response.attestationObject);
   var cdJson  = bufToB64(credential.response.clientDataJSON);
-  var flags = null;
-  try {
-    var adb = credential.response.getAuthenticatorData();
-    var v   = new DataView(adb), f = v.getUint8(32);
-    flags   = { userPresence: (f&1)!==0, userVerified: (f&4)!==0, signCount: v.getUint32(33,false) };
-  } catch (e) {}
+
+  // ── Parse authenticator data flags ───────────────────────────
+  // Byte 32 of authenticatorData contains flags:
+  //   Bit 0 (0x01): UP  — User Present
+  //   Bit 2 (0x04): UV  — User Verified (biometric/PIN confirmed)
+  //   Bit 3 (0x08): BE  — Backup Eligible (credential CAN be synced)
+  //   Bit 4 (0x10): BS  — Backup State   (credential IS currently synced/backed up)
+  var authDataBuf = credential.response.getAuthenticatorData
+    ? credential.response.getAuthenticatorData()
+    : null;
+
+  var flags      = null;
+  var isSynced   = false;
+  var isDeviceBound = true;
+
+  if (authDataBuf) {
+    var view      = new DataView(authDataBuf);
+    var flagByte  = view.getUint8(32);
+    var signCount = view.getUint32(33, false); // big-endian
+
+    flags = {
+      userPresent  : (flagByte & 0x01) !== 0,  // UP
+      userVerified : (flagByte & 0x04) !== 0,  // UV
+      backupEligible: (flagByte & 0x08) !== 0, // BE — can sync
+      backupState  : (flagByte & 0x10) !== 0,  // BS — currently synced
+      signCount    : signCount
+    };
+
+    // A credential is synced (not device-bound) if either:
+    //   BE=1 (eligible to be backed up across devices) OR
+    //   BS=1 (currently backed up/synced)
+    // Device-bound hardware keys have BE=0, BS=0
+    isSynced      = flags.backupEligible || flags.backupState;
+    isDeviceBound = !isSynced;
+
+    console.log('Auth flags — UV:' + flags.userVerified +
+                ' BE:' + flags.backupEligible +
+                ' BS:' + flags.backupState +
+                ' signCount:' + signCount);
+  }
+
+  // ── Warn if synced passkey detected ──────────────────────────
+  // We still SAVE it (the admin/student may not have a choice on their device)
+  // but we log and warn clearly.
+  if (isSynced) {
+    showInfo(
+      '⚠️ <strong>Synced passkey detected.</strong><br>' +
+      'This fingerprint credential is stored in Google Password Manager and can ' +
+      'be used from other devices. For stricter security, use a device that ' +
+      'supports device-bound biometrics (most Android phones without Google ' +
+      'Passkey sync enabled).<br><br>' +
+      'Registration will proceed, but attendance can only be marked from a ' +
+      'device you are logged into with the same Google account.'
+    );
+  }
+
   var alg = '—';
   try {
-    var a = credential.response.getPublicKeyAlgorithm ? credential.response.getPublicKeyAlgorithm() : null;
-    if (a===-7) alg='ES256'; else if (a===-257) alg='RS256';
-  } catch(e){}
+    var a = credential.response.getPublicKeyAlgorithm
+      ? credential.response.getPublicKeyAlgorithm() : null;
+    if (a === -7) alg = 'ES256'; else if (a === -257) alg = 'RS256';
+  } catch (e) {}
+
   var quality = Math.min(98, 65 + Math.floor(credential.rawId.byteLength / 3));
 
   postBack({
-    type: 'MUST_BIO_SUCCESS', mode: 'fingerprint',
-    studentId, fingerIndex, credentialId: credId, publicKey: pubKey,
-    attestation: attest, clientDataJSON: cdJson,
-    challenge: chalB64, algorithm: alg, authFlags: flags, quality,
-    capturedAt: new Date().toISOString(), rpId: window.location.hostname
+    type         : 'MUST_BIO_SUCCESS',
+    mode         : 'fingerprint',
+    studentId    : studentId,
+    fingerIndex  : fingerIndex,
+    credentialId : credId,
+    publicKey    : pubKey,
+    attestation  : attest,
+    clientDataJSON: cdJson,
+    challenge    : chalB64,
+    algorithm    : alg,
+    authFlags    : flags,
+    isDeviceBound: isDeviceBound,
+    isSynced     : isSynced,
+    quality      : quality,
+    capturedAt   : new Date().toISOString(),
+    rpId         : window.location.hostname
   });
 
-  showSuccess('✓ Fingerprint captured<br>Credential: <code>' + credId.substring(0,28) + '…</code><br>' +
-              'Algorithm: ' + alg + (flags ? ' | UV:' + flags.userVerified : '') +
-              '<br>Return to the MUST Attendance System tab.');
+  var syncWarning = isSynced
+    ? '<br><span style="color:#d97706;">⚠️ Synced passkey (Google PM)</span>'
+    : '<br><span style="color:#16a34a;">✓ Device-bound credential</span>';
+
+  showSuccess(
+    '✓ Fingerprint captured<br>' +
+    'Credential: <code>' + credId.substring(0, 28) + '…</code><br>' +
+    'Algorithm: ' + alg +
+    (flags ? ' | UV:' + flags.userVerified : '') +
+    syncWarning +
+    '<br>Return to the MUST Attendance System tab.'
+  );
   document.getElementById('done-btn').style.display = 'block';
 }
 
