@@ -282,40 +282,65 @@ function _validateTokenThenShowScanUI() {
   document.getElementById('fp-status').textContent = 'Validating your registration link…';
   document.getElementById('fp-scan-btn').disabled  = true;
 
-  fetch(GAS_URL + '?action=validateSelfRegToken&token=' + encodeURIComponent(SELF_REG_TOKEN))
-    .then(function (r) { return r.json(); })
-    .then(function (result) {
-      if (result.valid) {
-        // Populate student card from token (more trustworthy than URL params)
-        studentId   = result.studentId;
-        studentName = result.studentName;
-        studentNum  = result.studentNumber;
-        fingerIndex = result.fingerIndex || 1;
+  var validateUrl = GAS_URL +
+    '?action=validateSelfRegToken' +
+    '&token=' + encodeURIComponent(SELF_REG_TOKEN);
 
-        document.getElementById('student-card').style.display = 'block';
-        document.getElementById('sname').textContent   = studentName;
-        document.getElementById('snumber').textContent = 'No: ' + studentNum;
+  fetch(validateUrl, {
+    method     : 'GET',
+    credentials: 'omit',
+    redirect   : 'follow'
+  })
+  .then(function (r) { return r.text(); })
+  .then(function (text) {
+    var result;
+    try {
+      result = JSON.parse(text);
+    } catch (e) {
+      // GAS returned an HTML page (error) — treat as invalid
+      result = { valid: false, message: 'Could not reach server. Check your connection.' };
+    }
 
-        document.getElementById('fp-status').textContent = 'Ready to scan';
-        document.getElementById('fp-scan-btn').disabled  = false;
+    if (result.valid) {
+      // Trust student details from backend, not URL params
+      studentId   = result.studentId;
+      studentName = result.studentName;
+      studentNum  = result.studentNumber;
+      fingerIndex = result.fingerIndex || 1;
 
-        showInfo(
-          '<strong>Hi ' + studentName + '</strong> — please scan <strong>your own finger</strong> ' +
-          'when prompted. This registers YOUR fingerprint to YOUR account.'
-        );
-        checkWebAuthn();
-      } else {
-        disableFp('Registration link invalid', result.message ||
-          'Ask your administrator to generate a new registration link.');
-      }
-    })
-    .catch(function (err) {
-      // Fallback: if GAS URL not set, allow scan but flag as unvalidated
-      console.warn('Token validation fetch failed:', err);
-      document.getElementById('fp-status').textContent = 'Ready (offline validation)';
+      document.getElementById('student-card').style.display = 'block';
+      document.getElementById('sname').textContent   = studentName;
+      document.getElementById('snumber').textContent = 'No: ' + studentNum;
+
+      document.getElementById('fp-status').textContent = 'Ready to scan';
       document.getElementById('fp-scan-btn').disabled  = false;
+
+      showInfo(
+        '<strong>Hi ' + studentName + '</strong><br>' +
+        'Scan <strong>your own finger</strong> when prompted.<br>' +
+        'This registers YOUR fingerprint to YOUR student account.'
+      );
       checkWebAuthn();
-    });
+    } else {
+      disableFp(
+        'Registration link invalid',
+        (result.message || 'This link has expired or already been used.') +
+        '<br>Ask your administrator to generate a new link.'
+      );
+    }
+  })
+  .catch(function (err) {
+    // Network error — show a warning but still allow scan
+    // (offline fallback: we'll validate again at save time)
+    console.warn('Token validation failed (network):', err);
+    document.getElementById('fp-status').textContent = 'Ready (could not validate link — proceeding)';
+    document.getElementById('fp-scan-btn').disabled  = false;
+    showInfo(
+      '<strong>Warning:</strong> Could not validate registration link (network error).<br>' +
+      'You may proceed, but if the link has expired the save will fail.'
+    );
+    checkWebAuthn();
+  });
 }
   
 
@@ -622,45 +647,92 @@ function onFpSuccess(credential, chalB64) {
     ? '<br><span style="color:#d97706;">⚠️ Synced passkey (Google PM)</span>'
     : '<br><span style="color:#16a34a;">✓ Device-bound credential</span>';
 
-  if (SELF_REG_MODE && SELF_REG_TOKEN) {
-    // ── Self-registration path: call BIO_finalizeSelfRegistration via GAS ──
+if (SELF_REG_MODE && SELF_REG_TOKEN) {
+    // ── Self-registration path ────────────────────────────────────────────────
+    // GAS web apps don't support CORS POST from external origins.
+    // Encode the payload as base64 and send as a GET parameter instead.
     document.getElementById('fp-status').textContent = 'Saving your fingerprint…';
+    setSensor('fp-sensor', 'scanning', '⏳');
 
-    fetch(GAS_URL, {
-      method : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body   : JSON.stringify({
-        action : 'finalizeSelfRegistration',
-        token  : SELF_REG_TOKEN,
-        payload: bioPayload
+    try {
+      // Encode payload to base64 so it fits in a GET param
+      var payloadJson    = JSON.stringify(bioPayload);
+      var payloadEncoded = btoa(unescape(encodeURIComponent(payloadJson)));
+
+      var gasGetUrl = GAS_URL +
+        '?action=finalizeSelfRegistration' +
+        '&token='   + encodeURIComponent(SELF_REG_TOKEN) +
+        '&payload=' + encodeURIComponent(payloadEncoded);
+
+      // GAS redirects from script.google.com to googleusercontent.com —
+      // fetch follows redirects automatically, but we need credentials:'omit'
+      // to avoid preflight CORS issues.
+      fetch(gasGetUrl, {
+        method     : 'GET',
+        credentials: 'omit',
+        redirect   : 'follow'
       })
-    })
-    .then(function (r) { return r.json(); })
-    .then(function (result) {
-      if (result.success) {
-        showSuccess(
-          '✓ Fingerprint registered successfully!<br>' +
-          'Credential: <code>' + credId.substring(0, 28) + '…</code>' +
-          syncWarning +
-          '<br><strong>You can now close this tab and mark attendance normally.</strong>'
-        );
-        document.getElementById('fp-status').textContent = 'Registration complete ✓';
-      } else {
-        showError('<strong>Save failed:</strong> ' + (result.message || 'Unknown error') +
-                  '<br>Please ask your administrator to try again.');
-        document.getElementById('fp-retry-btn').style.display = 'block';
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
+      })
+      .then(function (text) {
+        // GAS sometimes wraps JSON in a callback or adds HTML — extract JSON
+        var json;
+        try {
+          // Try direct parse first
+          json = JSON.parse(text);
+        } catch (e) {
+          // Try to extract JSON from HTML response (GAS error page)
+          var match = text.match(/\{[\s\S]*\}/);
+          if (match) {
+            try { json = JSON.parse(match[0]); } catch (e2) {
+              throw new Error('Could not parse response: ' + text.substring(0, 100));
+            }
+          } else {
+            throw new Error('Non-JSON response: ' + text.substring(0, 100));
+          }
+        }
+
+        if (json && json.success) {
+          setSensor('fp-sensor', 'success', '✓');
+          showSuccess(
+            '✓ <strong>Fingerprint registered successfully!</strong><br>' +
+            'Credential: <code>' + credId.substring(0, 28) + '…</code>' +
+            syncWarning +
+            '<br><br><strong>You can now close this tab.</strong><br>' +
+            '<small>Your fingerprint is linked to your account. Use the attendance app normally.</small>'
+          );
+          document.getElementById('fp-status').textContent = 'Registration complete ✓';
+          document.getElementById('fp-scan-btn').style.display  = 'none';
+          document.getElementById('fp-retry-btn').style.display = 'none';
+        } else {
+          throw new Error((json && json.message) || 'Registration failed');
+        }
+        document.getElementById('done-btn').style.display = 'block';
+      })
+      .catch(function (err) {
         setSensor('fp-sensor', 'error', '✕');
-      }
-      document.getElementById('done-btn').style.display = 'block';
-    })
-    .catch(function (err) {
-      showError('Network error saving fingerprint: ' + err.message);
+        showError(
+          '<strong>Save failed:</strong> ' + err.message +
+          '<br><br>This can happen if:<br>' +
+          '• Your internet connection dropped<br>' +
+          '• The registration link expired<br>' +
+          '<br>Please ask your administrator to generate a new link.'
+        );
+        document.getElementById('fp-retry-btn').style.display = 'block';
+        document.getElementById('done-btn').style.display     = 'block';
+        console.error('Self-reg save error:', err);
+      });
+
+    } catch (encodeErr) {
+      showError('Encoding error: ' + encodeErr.message);
       document.getElementById('fp-retry-btn').style.display = 'block';
-      document.getElementById('done-btn').style.display = 'block';
-    });
+      document.getElementById('done-btn').style.display     = 'block';
+    }
 
   } else {
-    // ── Admin-initiated path: postBack to parent window (existing behavior) ──
+    // ── Admin popup path: postBack to parent window (unchanged) ───────────────
     postBack(bioPayload);
     showSuccess(
       '✓ Fingerprint captured<br>' +
