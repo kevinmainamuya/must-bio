@@ -261,14 +261,79 @@ window.addEventListener('load', function () {
     document.getElementById('verify-ui').style.display = 'block';
     checkVerifyReady();
 
+  } else if (MODE === 'location') {
+    // ── Location mode: get GPS and post back ──────────────────────────────
+    document.getElementById('mode-subtitle').textContent = 'Location Verification';
+    document.getElementById('fp-ui').style.display = 'none';
+
+    // Replace card UI with location loader
+    document.querySelector('.card').innerHTML =
+      '<img class="logo" src="https://raw.githubusercontent.com/kevinmainamuya/image-storage/refs/heads/main/MUST.png" alt="MUST" onerror="this.style.display=\'none\'">' +
+      '<h1>MUST Biometric</h1>' +
+      '<p class="sub">Getting your location…</p>' +
+      '<div id="loc-status" style="text-align:center;padding:20px;">' +
+      '<div style="width:48px;height:48px;border:4px solid #1a6b3c;border-top-color:transparent;' +
+        'border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px;"></div>' +
+      '<p style="color:#1a6b3c;font-weight:600;">Detecting your location…</p>' +
+      '<p style="color:#6b7280;font-size:.82rem;">Please allow location access when prompted.</p>' +
+      '</div>' +
+      '<style>@keyframes spin{to{transform:rotate(360deg)}}</style>';
+
+    if (!navigator.geolocation) {
+      document.getElementById('loc-status').innerHTML =
+        '<p style="color:#dc2626;font-weight:600;">Geolocation not supported.</p>' +
+        '<p style="color:#6b7280;font-size:.82rem;">Use Chrome or Firefox on Android.</p>';
+
+      postLocationBack(false, null, null, null,
+        'Geolocation not supported in this browser.');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      function (pos) {
+        document.getElementById('loc-status').innerHTML =
+          '<div style="font-size:2.5rem;margin-bottom:8px;">✓</div>' +
+          '<p style="color:#16a34a;font-weight:600;">Location detected!</p>' +
+          '<p style="color:#6b7280;font-size:.8rem;">' +
+          pos.coords.latitude.toFixed(5) + ', ' + pos.coords.longitude.toFixed(5) +
+          '<br>Accuracy: ±' + Math.round(pos.coords.accuracy) + 'm</p>' +
+          '<p style="color:#9ca3af;font-size:.75rem;margin-top:8px;">Returning to app…</p>';
+
+        postLocationBack(
+          true,
+          pos.coords.latitude,
+          pos.coords.longitude,
+          pos.coords.accuracy,
+          null
+        );
+
+        setTimeout(function () { window.close(); }, 1500);
+      },
+      function (err) {
+        var msgs = {
+          1: 'Location permission denied. Tap the location icon in your browser address bar and allow.',
+          2: 'Location unavailable. Move outdoors or enable GPS.',
+          3: 'Location timed out. Try again.'
+        };
+
+        var msg = msgs[err.code] || 'Could not get location: ' + err.message;
+
+        document.getElementById('loc-status').innerHTML =
+          '<div style="font-size:2rem;color:#dc2626;margin-bottom:8px;">✕</div>' +
+          '<p style="color:#dc2626;font-weight:600;">Location failed</p>' +
+          '<p style="color:#6b7280;font-size:.82rem;">' + msg + '</p>';
+
+        postLocationBack(false, null, null, null, msg);
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+    );
+
   } else {
-    // Fingerprint registration
+    // ── Fingerprint registration ─────────────────────────────────────────
     if (SELF_REG_MODE && SELF_REG_TOKEN) {
-      // Self-registration: validate token first, then show scan UI
       document.getElementById('mode-subtitle').textContent = 'Fingerprint Self-Registration';
       _validateTokenThenShowScanUI();
     } else {
-      // Admin-initiated (legacy): show scan UI immediately
       document.getElementById('mode-subtitle').textContent = 'Fingerprint Registration';
       checkWebAuthn();
     }
@@ -945,6 +1010,25 @@ function b64ToBuf(b64) {
     return buf.buffer;
   } catch(e) { console.error('b64ToBuf error:', e, b64); return new ArrayBuffer(0); }
 }
+
+// Helpers for location verification
+function postLocationBack(success, latitude, longitude, accuracy, error) {
+  var msg = {
+    type     : 'MUST_LOCATION',
+    success  : success,
+    latitude : latitude,
+    longitude: longitude,
+    accuracy : accuracy,
+    error    : error
+  };
+  try { sessionStorage.setItem('MUST_LOCATION_RESULT', JSON.stringify(msg)); } catch(e) {}
+  if (window.opener && !window.opener.closed) {
+    try {
+      window.opener.postMessage(msg, isAllowedOrigin(gasOrigin) ? gasOrigin : '*');
+    } catch(e) {}
+  }
+}
+  
 </script>
 </body>
 </html>
