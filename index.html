@@ -261,72 +261,11 @@ window.addEventListener('load', function () {
     document.getElementById('verify-ui').style.display = 'block';
     checkVerifyReady();
 
-  } else if (MODE === 'location') {
-    // ── Location mode: get GPS and post back ──────────────────────────────
-    document.getElementById('mode-subtitle').textContent = 'Location Verification';
-    document.getElementById('fp-ui').style.display = 'none';
-
-    // Replace card UI with location loader
-    document.querySelector('.card').innerHTML =
-      '<img class="logo" src="https://raw.githubusercontent.com/kevinmainamuya/image-storage/refs/heads/main/MUST.png" alt="MUST" onerror="this.style.display=\'none\'">' +
-      '<h1>MUST Biometric</h1>' +
-      '<p class="sub">Getting your location…</p>' +
-      '<div id="loc-status" style="text-align:center;padding:20px;">' +
-      '<div style="width:48px;height:48px;border:4px solid #1a6b3c;border-top-color:transparent;' +
-        'border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px;"></div>' +
-      '<p style="color:#1a6b3c;font-weight:600;">Detecting your location…</p>' +
-      '<p style="color:#6b7280;font-size:.82rem;">Please allow location access when prompted.</p>' +
-      '</div>' +
-      '<style>@keyframes spin{to{transform:rotate(360deg)}}</style>';
-
-    if (!navigator.geolocation) {
-      document.getElementById('loc-status').innerHTML =
-        '<p style="color:#dc2626;font-weight:600;">Geolocation not supported.</p>' +
-        '<p style="color:#6b7280;font-size:.82rem;">Use Chrome or Firefox on Android.</p>';
-
-      postLocationBack(false, null, null, null,
-        'Geolocation not supported in this browser.');
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      function (pos) {
-        document.getElementById('loc-status').innerHTML =
-          '<div style="font-size:2.5rem;margin-bottom:8px;">✓</div>' +
-          '<p style="color:#16a34a;font-weight:600;">Location detected!</p>' +
-          '<p style="color:#6b7280;font-size:.8rem;">' +
-          pos.coords.latitude.toFixed(5) + ', ' + pos.coords.longitude.toFixed(5) +
-          '<br>Accuracy: ±' + Math.round(pos.coords.accuracy) + 'm</p>' +
-          '<p style="color:#9ca3af;font-size:.75rem;margin-top:8px;">Returning to app…</p>';
-
-        postLocationBack(
-          true,
-          pos.coords.latitude,
-          pos.coords.longitude,
-          pos.coords.accuracy,
-          null
-        );
-
-        setTimeout(function () { window.close(); }, 1500);
-      },
-      function (err) {
-        var msgs = {
-          1: 'Location permission denied. Tap the location icon in your browser address bar and allow.',
-          2: 'Location unavailable. Move outdoors or enable GPS.',
-          3: 'Location timed out. Try again.'
-        };
-
-        var msg = msgs[err.code] || 'Could not get location: ' + err.message;
-
-        document.getElementById('loc-status').innerHTML =
-          '<div style="font-size:2rem;color:#dc2626;margin-bottom:8px;">✕</div>' +
-          '<p style="color:#dc2626;font-weight:600;">Location failed</p>' +
-          '<p style="color:#6b7280;font-size:.82rem;">' + msg + '</p>';
-
-        postLocationBack(false, null, null, null, msg);
-      },
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
-    );
+  } else if (MODE === 'verify') {
+    document.getElementById('mode-subtitle').textContent = 'Identity Verification';
+    document.getElementById('fp-ui').style.display     = 'none';
+    document.getElementById('verify-ui').style.display = 'block';
+    checkVerifyReady();
 
   } else {
     // ── Fingerprint registration ─────────────────────────────────────────
@@ -1012,6 +951,91 @@ function b64ToBuf(b64) {
 }
 
 // Helpers for location verification
+// ══════════════════════════════════════════════════════════════
+// LOCATION MODE — get GPS and post back to parent window
+// ══════════════════════════════════════════════════════════════
+function _runLocationMode() {
+  // Replace card content with a minimal location UI
+  document.querySelector('.card').innerHTML =
+    '<img class="logo" ' +
+    'src="https://raw.githubusercontent.com/kevinmainamuya/image-storage/refs/heads/main/MUST.png" ' +
+    'alt="MUST" onerror="this.style.display=\'none\'">' +
+    '<h1 style="color:#1a6b3c;font-size:1.1rem;margin-bottom:4px;">MUST Attendance</h1>' +
+    '<p style="color:#6b7280;font-size:.82rem;margin-bottom:16px;">Location Verification</p>' +
+    '<div id="loc-body" style="text-align:center;padding:12px 0;">' +
+      '<div id="loc-spinner" style="width:52px;height:52px;border:4px solid #d1fae5;' +
+        'border-top-color:#1a6b3c;border-radius:50%;' +
+        'animation:spin 1s linear infinite;margin:0 auto 14px;"></div>' +
+      '<p id="loc-title" style="font-weight:700;color:#111827;margin-bottom:4px;">Detecting location…</p>' +
+      '<p id="loc-sub" style="color:#6b7280;font-size:.8rem;">' +
+        'Please allow location access when prompted.</p>' +
+    '</div>' +
+    '<style>@keyframes spin{to{transform:rotate(360deg)}}</style>';
+
+  if (!navigator.geolocation) {
+    document.getElementById('loc-title').textContent = 'Not supported';
+    document.getElementById('loc-sub').textContent   =
+      'This browser does not support geolocation. Use Chrome on Android.';
+    document.getElementById('loc-spinner').style.display = 'none';
+    postLocationBack(false, null, null, null,
+      'Geolocation not supported in this browser.');
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    function (pos) {
+      // Success
+      var lat = pos.coords.latitude;
+      var lng = pos.coords.longitude;
+      var acc = pos.coords.accuracy;
+
+      document.getElementById('loc-spinner').style.borderTopColor = '#22c55e';
+      document.getElementById('loc-spinner').style.animation = 'none';
+      document.getElementById('loc-spinner').innerHTML =
+        '<div style="width:52px;height:52px;display:flex;align-items:center;' +
+        'justify-content:center;font-size:1.8rem;color:#16a34a;' +
+        'border:3px solid #86efac;border-radius:50%;">✓</div>';
+      document.getElementById('loc-title').textContent = 'Location detected!';
+      document.getElementById('loc-title').style.color = '#16a34a';
+      document.getElementById('loc-sub').innerHTML =
+        lat.toFixed(5) + ', ' + lng.toFixed(5) +
+        '<br>Accuracy: ±' + Math.round(acc) + 'm' +
+        '<br><span style="color:#9ca3af;font-size:.75rem;">Returning to app…</span>';
+
+      postLocationBack(true, lat, lng, acc, null);
+
+      // Close popup after short delay so student can see the success state
+      setTimeout(function () { window.close(); }, 1800);
+    },
+    function (err) {
+      var msgs = {
+        1: 'Location permission denied.\n\nTap the location/lock icon in the browser address bar, select "Allow", then close and reopen this link.',
+        2: 'Location signal unavailable. Move to an open area or enable GPS in Settings.',
+        3: 'Location timed out. Ensure GPS is enabled and try again.'
+      };
+      var msg = msgs[err.code] || ('Location error: ' + err.message);
+
+      document.getElementById('loc-spinner').style.display = 'none';
+      document.getElementById('loc-title').textContent     = 'Location failed';
+      document.getElementById('loc-title').style.color     = '#dc2626';
+      document.getElementById('loc-sub').style.color       = '#6b7280';
+      document.getElementById('loc-sub').innerHTML         =
+        msg.replace(/\n/g, '<br>') +
+        '<br><br>' +
+        '<button onclick="window.location.reload()" ' +
+        'style="background:#1a6b3c;color:white;border:none;padding:8px 20px;' +
+        'border-radius:8px;font-size:.85rem;cursor:pointer;">Try Again</button>';
+
+      postLocationBack(false, null, null, null, msg);
+    },
+    {
+      enableHighAccuracy: true,
+      timeout           : 20000,   // 20 seconds — longer than the 8s parent timeout
+      maximumAge        : 0
+    }
+  );
+}
+
 function postLocationBack(success, latitude, longitude, accuracy, error) {
   var msg = {
     type     : 'MUST_LOCATION',
@@ -1021,11 +1045,19 @@ function postLocationBack(success, latitude, longitude, accuracy, error) {
     accuracy : accuracy,
     error    : error
   };
-  try { sessionStorage.setItem('MUST_LOCATION_RESULT', JSON.stringify(msg)); } catch(e) {}
+  try {
+    sessionStorage.setItem('MUST_LOCATION_RESULT', JSON.stringify(msg));
+  } catch (e) {}
   if (window.opener && !window.opener.closed) {
     try {
-      window.opener.postMessage(msg, isAllowedOrigin(gasOrigin) ? gasOrigin : '*');
-    } catch(e) {}
+      window.opener.postMessage(
+        msg,
+        isAllowedOrigin(gasOrigin) ? gasOrigin : '*'
+      );
+    } catch (e) {
+      // If postMessage fails, try with wildcard
+      try { window.opener.postMessage(msg, '*'); } catch (e2) {}
+    }
   }
 }
   
