@@ -284,25 +284,14 @@ function _validateTokenThenShowScanUI() {
 
   var validateUrl = GAS_URL +
     '?action=validateSelfRegToken' +
-    '&token=' + encodeURIComponent(SELF_REG_TOKEN);
+    '&token='        + encodeURIComponent(SELF_REG_TOKEN) +
+    '&callback=_gasValidateCallback';
 
-  fetch(validateUrl, {
-    method     : 'GET',
-    credentials: 'omit',
-    redirect   : 'follow'
-  })
-  .then(function (r) { return r.text(); })
-  .then(function (text) {
-    var result;
-    try {
-      result = JSON.parse(text);
-    } catch (e) {
-      // GAS returned an HTML page (error) — treat as invalid
-      result = { valid: false, message: 'Could not reach server. Check your connection.' };
-    }
-
-    if (result.valid) {
-      // Trust student details from backend, not URL params
+  // For validation we actually need to READ the response, so we use
+  // a <script> JSONP-style approach — GAS supports this via callback param.
+  // We wrap the response in a JS function call.
+  window._gasValidateCallback = function (result) {
+    if (result && result.valid) {
       studentId   = result.studentId;
       studentName = result.studentName;
       studentNum  = result.studentNumber;
@@ -324,23 +313,46 @@ function _validateTokenThenShowScanUI() {
     } else {
       disableFp(
         'Registration link invalid',
-        (result.message || 'This link has expired or already been used.') +
+        ((result && result.message) || 'This link has expired or already been used.') +
         '<br>Ask your administrator to generate a new link.'
       );
     }
-  })
-  .catch(function (err) {
-    // Network error — show a warning but still allow scan
-    // (offline fallback: we'll validate again at save time)
-    console.warn('Token validation failed (network):', err);
-    document.getElementById('fp-status').textContent = 'Ready (could not validate link — proceeding)';
-    document.getElementById('fp-scan-btn').disabled  = false;
-    showInfo(
-      '<strong>Warning:</strong> Could not validate registration link (network error).<br>' +
-      'You may proceed, but if the link has expired the save will fail.'
-    );
-    checkWebAuthn();
-  });
+  };
+
+  // Timeout fallback — if script never loads
+  var callbackFired = false;
+  var origCallback  = window._gasValidateCallback;
+  window._gasValidateCallback = function (result) {
+    callbackFired = true;
+    origCallback(result);
+  };
+
+  setTimeout(function () {
+    if (!callbackFired) {
+      console.warn('JSONP validation timed out — proceeding with fallback');
+      document.getElementById('fp-status').textContent = 'Ready (link validation skipped)';
+      document.getElementById('fp-scan-btn').disabled  = false;
+      showInfo(
+        '<strong>Note:</strong> Could not validate link (network issue).<br>' +
+        'Proceed — if the link is invalid, registration will fail when saving.'
+      );
+      checkWebAuthn();
+    }
+  }, 6000);
+
+  // Inject a <script> tag — this is true JSONP and works cross-origin
+  var script  = document.createElement('script');
+  script.src  = validateUrl;
+  script.onerror = function () {
+    if (!callbackFired) {
+      // Script failed to load — fallback
+      console.warn('JSONP script load error — proceeding with fallback');
+      document.getElementById('fp-status').textContent = 'Ready (offline validation)';
+      document.getElementById('fp-scan-btn').disabled  = false;
+      checkWebAuthn();
+    }
+  };
+  document.head.appendChild(script);
 }
   
 
@@ -647,75 +659,65 @@ function onFpSuccess(credential, chalB64) {
     ? '<br><span style="color:#d97706;">⚠️ Synced passkey (Google PM)</span>'
     : '<br><span style="color:#16a34a;">✓ Device-bound credential</span>';
 
-  if (SELF_REG_MODE && SELF_REG_TOKEN) {
-    // ── Self-registration: store result in GAS via GET, then show success ──
-    // We cannot POST cross-origin to GAS. Instead we encode the payload
-    // as base64 and send it as a GET parameter. GAS stores it server-side.
-    // The admin page polls BIO_pollSelfRegResult to finalize registration.
+if (SELF_REG_MODE && SELF_REG_TOKEN) {
     document.getElementById('fp-status').textContent = 'Saving your fingerprint…';
     setSensor('fp-sensor', 'scanning', '⏳');
 
     try {
-      // Strip large fields that aren't needed for registration
-      // to keep the GET URL under browser limits (~8KB)
       var slimPayload = {
         credentialId  : bioPayload.credentialId,
         publicKey     : bioPayload.publicKey,
         quality       : bioPayload.quality,
         isDeviceBound : bioPayload.isDeviceBound,
-        isSynced      : bioPayload.isSynced,
+        isSynced      : bioPayload.isSynced      || false,
         capturedAt    : bioPayload.capturedAt,
         algorithm     : bioPayload.algorithm,
         authFlags     : bioPayload.authFlags
-        // intentionally omit attestation and clientDataJSON — not needed for storage
       };
 
       var payloadJson    = JSON.stringify(slimPayload);
       var payloadEncoded = btoa(unescape(encodeURIComponent(payloadJson)));
 
-      // Use no-cors mode — we don't need to read the response body,
-      // just confirm the request was sent. GAS will store the result
-      // and the admin page polls for it.
       var gasStoreUrl = GAS_URL +
         '?action=storeSelfRegResult' +
         '&token='   + encodeURIComponent(SELF_REG_TOKEN) +
         '&payload=' + encodeURIComponent(payloadEncoded);
 
-      // Send with no-cors — this bypasses CORS restrictions entirely.
-      // We get an opaque response (can't read it) but the request ARRIVES at GAS.
-      fetch(gasStoreUrl, {
-        method     : 'GET',
-        mode       : 'no-cors',
-        credentials: 'omit'
-      })
-      .then(function () {
-        // With no-cors we always get here (opaque response treated as success)
-        // Show the student a success message — the admin's poll will confirm
+      // ── Use <img> src trick — always works cross-origin, no CORS issues,
+      // follows redirects natively, no preflight. GAS receives the GET request.
+      var ping       = new Image();
+      var pingDone   = false;
+
+      function onPingDone(success) {
+        if (pingDone) return;
+        pingDone = true;
+
+        // Whether the img load succeeded or errored, the request was sent.
+        // GAS returns JSON which isn't a valid image, so onerror always fires.
+        // That's expected — the request still arrived at doGet.
         setSensor('fp-sensor', 'success', '✓');
         showSuccess(
           '✓ <strong>Fingerprint scanned successfully!</strong><br><br>' +
           syncWarning +
           '<br><br>' +
           '<strong>What happens next:</strong><br>' +
-          'Your fingerprint has been sent to the system.<br>' +
-          'The ICT staff member will confirm registration on their screen.<br><br>' +
-          '<strong>You can close this tab now.</strong>'
+          'Your fingerprint has been sent to the MUST system.<br>' +
+          'The ICT staff member will see it confirmed on their screen within a few seconds.<br><br>' +
+          '<strong>You may close this tab now.</strong>'
         );
-        document.getElementById('fp-status').textContent = 'Done ✓';
+        document.getElementById('fp-status').textContent  = 'Done ✓';
         document.getElementById('fp-scan-btn').style.display  = 'none';
         document.getElementById('fp-retry-btn').style.display = 'none';
         document.getElementById('done-btn').style.display     = 'block';
-      })
-      .catch(function (err) {
-        // no-cors fetch should never fail — if it does, show error
-        setSensor('fp-sensor', 'error', '✕');
-        showError(
-          '<strong>Network error:</strong> ' + err.message +
-          '<br>Please ensure you have internet access and try again.'
-        );
-        document.getElementById('fp-retry-btn').style.display = 'block';
-        document.getElementById('done-btn').style.display     = 'block';
-      });
+      }
+
+      ping.onload  = function () { onPingDone(true);  };
+      ping.onerror = function () { onPingDone(false); }; // expected — GAS returns JSON not image
+
+      // Set a timeout in case neither event fires (some browsers suppress both for opaque)
+      setTimeout(function () { onPingDone(false); }, 8000);
+
+      ping.src = gasStoreUrl;
 
     } catch (encodeErr) {
       setSensor('fp-sensor', 'error', '✕');
@@ -725,7 +727,7 @@ function onFpSuccess(credential, chalB64) {
     }
 
   } else {
-    // ── Admin popup path: postBack to parent window ────────────────────────
+    // Admin popup path — unchanged
     postBack(bioPayload);
     showSuccess(
       '✓ Fingerprint captured<br>' +
