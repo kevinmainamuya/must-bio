@@ -420,42 +420,60 @@ function startVerify() {
 function onVerifySuccess(assertion) {
   setVerifySensor('success', '✓');
   document.getElementById('verify-status').textContent = 'Identity verified!';
-  document.getElementById('verify-sub').textContent    = 'Sending verification to MUST Attendance System…';
+  document.getElementById('verify-sub').textContent    =
+    'Sending verification to MUST Attendance System…';
 
-  // Extract assertion components
-  var credentialId  = bufToB64(assertion.rawId);
-  var signature     = bufToB64(assertion.response.signature);
-  var clientData    = bufToB64(assertion.response.clientDataJSON);
-  var authData      = bufToB64(assertion.response.authenticatorData);
+  var credentialId = bufToB64(assertion.rawId);
+  var signature    = bufToB64(assertion.response.signature);
+  var clientData   = bufToB64(assertion.response.clientDataJSON);
+  var authData     = bufToB64(assertion.response.authenticatorData);
 
-  // Parse sign count from authenticator data (bytes 33-36, big-endian uint32)
   var signCount = 0;
   try {
-    var view = new DataView(assertion.response.authenticatorData);
+    var view  = new DataView(assertion.response.authenticatorData);
     signCount = view.getUint32(33, false);
   } catch (e) {}
 
   var msg = {
-    type         : 'MUST_BIO_SUCCESS',
-    mode         : 'verify',
-    studentId    : studentId,
-    credentialId : credentialId,
-    signature    : signature,
-    clientData   : clientData,
-    authData     : authData,
-    signCount    : signCount,
-    verifiedAt   : new Date().toISOString()
+    type        : 'MUST_BIO_SUCCESS',
+    mode        : 'verify',
+    studentId   : studentId,
+    credentialId: credentialId,
+    signature   : signature,
+    clientData  : clientData,
+    authData    : authData,
+    signCount   : signCount,
+    verifiedAt  : new Date().toISOString()
   };
 
+  // Store result FIRST so checkTabResult / RESEND can find it
+  try { sessionStorage.setItem('MUST_BIO_RESULT', JSON.stringify(msg)); } catch(e) {}
+
+  // Post to parent
   postBack(msg);
 
+  // Update UI
+  document.getElementById('verify-sub').textContent =
+    '✓ Verified! Return to the attendance tab.';
+
   showSuccess(
-    '✓ Identity verified<br>' +
+    '✓ <strong>Fingerprint verified!</strong><br>' +
     'Credential: <code>' + credentialId.substring(0, 24) + '…</code><br>' +
-    'Sign count: ' + signCount + '<br>' +
-    'Return to the MUST Attendance System tab.'
+    'Sign count: ' + signCount + '<br><br>' +
+    '<strong>You can now return to the MUST Attendance app tab.</strong><br>' +
+    '<small>This tab will close automatically in 3 seconds.</small>'
   );
+
   document.getElementById('done-btn').style.display = 'block';
+
+  // Auto-close after 3 seconds — parent tab will detect the return via visibilitychange
+  setTimeout(function () {
+    try { window.close(); } catch(e) {}
+    // If window.close() is blocked (some browsers block it if not opener-opened),
+    // show a manual close prompt
+    document.getElementById('verify-sub').textContent =
+      'Please close this tab and return to the attendance app.';
+  }, 3000);
 }
 
 function onVerifyError(err) {
