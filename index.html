@@ -1058,6 +1058,24 @@ function postLocationBack(success, latitude, longitude, accuracy, error) {
     }
   }
 }
+
+// Add this once at the bottom of must-bio/index.html script block
+window.addEventListener('message', function (event) {
+  if (event.data && event.data.type === 'MUST_BIO_RESEND') {
+    // Re-send the last stored result to whoever asked
+    try {
+      var stored = sessionStorage.getItem('MUST_BIO_RESULT');
+      if (stored && window.opener && !window.opener.closed) {
+        window.opener.postMessage(JSON.parse(stored), '*');
+        console.log('RESEND: re-posted stored result');
+      } else {
+        console.log('RESEND: nothing stored yet');
+      }
+    } catch (e) {
+      console.warn('RESEND error:', e);
+    }
+  }
+});
   
 </script>
 </body>
