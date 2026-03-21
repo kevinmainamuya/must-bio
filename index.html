@@ -249,7 +249,11 @@ window.addEventListener('load', function () {
     document.getElementById('snumber').textContent = studentNum ? 'No: ' + studentNum : '';
   }
 
-  if (MODE === 'face') {
+  if (MODE === 'location') {
+    // ── Location mode — get GPS coords and post back ──────────────────────
+    _runLocationMode();
+
+  } else if (MODE === 'face') {
     document.getElementById('mode-subtitle').textContent = 'Face ID Capture';
     document.getElementById('fp-ui').style.display     = 'none';
     document.getElementById('face-ui').style.display   = 'block';
@@ -261,14 +265,8 @@ window.addEventListener('load', function () {
     document.getElementById('verify-ui').style.display = 'block';
     checkVerifyReady();
 
-  } else if (MODE === 'verify') {
-    document.getElementById('mode-subtitle').textContent = 'Identity Verification';
-    document.getElementById('fp-ui').style.display     = 'none';
-    document.getElementById('verify-ui').style.display = 'block';
-    checkVerifyReady();
-
   } else {
-    // ── Fingerprint registration ─────────────────────────────────────────
+    // Fingerprint registration
     if (SELF_REG_MODE && SELF_REG_TOKEN) {
       document.getElementById('mode-subtitle').textContent = 'Fingerprint Self-Registration';
       _validateTokenThenShowScanUI();
