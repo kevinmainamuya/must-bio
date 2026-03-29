@@ -250,34 +250,52 @@ window.addEventListener('load', function () {
   }
 
   if (MODE === 'location') {
-    // ── Location mode — get GPS coords and post back ──────────────────────
+    // ── Location mode ─────────────────────────────────────────────────────
     _runLocationMode();
 
   } else if (MODE === 'face') {
+    // ── Face mode (handles: attendance, self-reg, admin capture) ─────────
+    var ATTENDANCE_MODE = P.get('attendanceMode') === 'true';
+    var FACE_SELF_REG   = P.get('selfReg')        === 'true';
+    var FACE_SELF_TOKEN = P.get('faceToken')      || '';
+
     document.getElementById('fp-ui').style.display   = 'none';
     document.getElementById('face-ui').style.display = 'block';
 
-    // ── Detect face self-registration ────────────────────────────────────
-    var FACE_SELF_REG   = P.get('selfReg')   === 'true';
-    var FACE_SELF_TOKEN = P.get('faceToken') || '';
+    // Always show student card in face flows
+    document.getElementById('student-card').style.display = 'block';
+    document.getElementById('sname').textContent   = studentName || '—';
+    document.getElementById('snumber').textContent = studentNum ? 'No: ' + studentNum : '';
 
-    if (FACE_SELF_REG && FACE_SELF_TOKEN) {
+    if (ATTENDANCE_MODE) {
+      // ── Attendance verification ────────────────────────────────────────
+      document.getElementById('mode-subtitle').textContent = 'Face ID Verification';
+
+      var guideEl = document.getElementById('face-guide-tip');
+      if (guideEl) {
+        guideEl.textContent =
+          'Look directly at the camera. This verifies your identity for attendance.';
+      }
+
+      var captureBtn = document.getElementById('face-capture-btn');
+      if (captureBtn) {
+        captureBtn.textContent = 'Verify Face';
+      }
+
+    } else if (FACE_SELF_REG && FACE_SELF_TOKEN) {
+      // ── Face self-registration ─────────────────────────────────────────
       document.getElementById('mode-subtitle').textContent = 'Face ID Self-Registration';
 
-      // Ensure student card is visible (important for self-reg UX)
-      document.getElementById('student-card').style.display = 'block';
-      document.getElementById('sname').textContent   = studentName || '—';
-      document.getElementById('snumber').textContent = studentNum ? 'No: ' + studentNum : '';
-
-      startCamera();
-
     } else {
-      // Admin/manual face capture
+      // ── Admin/manual capture ───────────────────────────────────────────
       document.getElementById('mode-subtitle').textContent = 'Face ID Capture';
-      startCamera();
     }
 
+    // Start camera for all face scenarios
+    startCamera();
+
   } else if (MODE === 'verify') {
+    // ── Identity verification (non-face flow) ─────────────────────────────
     document.getElementById('mode-subtitle').textContent = 'Identity Verification';
     document.getElementById('fp-ui').style.display     = 'none';
     document.getElementById('verify-ui').style.display = 'block';
